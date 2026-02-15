@@ -37,7 +37,7 @@ export async function runWorkflow(params: {
     for (let i = 0; i < workflow.steps.length; i++) {
       const step = workflow.steps[i];
       const stepUuid = crypto.randomUUID();
-      const agentId = `${workflow.id}/${step.agent}`;
+      const agentId = `${workflow.id}-${step.agent}`;
       const status = i === 0 ? "pending" : "waiting";
       const maxRetries = step.max_retries ?? step.on_fail?.max_retries ?? 2;
       const stepType = step.type ?? "single";
@@ -64,7 +64,7 @@ export async function runWorkflow(params: {
 
   emitEvent({ ts: new Date().toISOString(), event: "run.started", runId, workflowId: workflow.id });
 
-  await logger.info(`Run started: "${params.taskTitle}"`, {
+  logger.info(`Run started: "${params.taskTitle}"`, {
     workflowId: workflow.id,
     runId,
     stepId: workflow.steps[0]?.id,
