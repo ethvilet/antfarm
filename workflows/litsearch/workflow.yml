@@ -54,7 +54,6 @@ agents:
     workspace:
       baseDir: agents/verifier
       skills:
-        - agent-browser
       files:
         AGENTS.md: ../../agents/shared/verifier/AGENTS.md
         SOUL.md: ../../agents/shared/verifier/SOUL.md
@@ -78,7 +77,6 @@ agents:
     workspace:
       baseDir: agents/reviewer
       skills:
-        - agent-browser
       files:
         AGENTS.md: agents/reviewer/AGENTS.md
         SOUL.md: agents/reviewer/SOUL.md
