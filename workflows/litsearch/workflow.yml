@@ -14,7 +14,7 @@ polling:
   timeoutSeconds: 120
 
 agents:
-  - id: litsearch_planner
+  - id: planner
     name: Planner
     role: analysis
     description: Decomposes tasks into ordered user stories.
@@ -25,7 +25,7 @@ agents:
         SOUL.md: agents/planner/SOUL.md
         IDENTITY.md: agents/planner/IDENTITY.md
 
-  - id: litsearch_setup
+  - id: setup
     name: Setup
     role: coding
     description: Prepares environment, creates branch, establishes baseline.
@@ -36,7 +36,7 @@ agents:
         SOUL.md: ../../agents/shared/setup/SOUL.md
         IDENTITY.md: ../../agents/shared/setup/IDENTITY.md
 
-  - id: litsearch_runner
+  - id: runner
     name: Developer
     role: coding
     description: Implements features, writes tests, creates PRs.
@@ -47,7 +47,7 @@ agents:
         SOUL.md: agents/developer/SOUL.md
         IDENTITY.md: agents/developer/IDENTITY.md
 
-  - id: litsearch_validator
+  - id: validator
     name: Verifier
     role: verification
     description: Quick sanity check - did developer actually do the work?
@@ -60,7 +60,7 @@ agents:
         SOUL.md: ../../agents/shared/verifier/SOUL.md
         IDENTITY.md: ../../agents/shared/verifier/IDENTITY.md
 
-  - id: litsearch_tester
+  - id: tester
     name: Tester
     role: testing
     description: Integration and E2E testing after all stories are implemented.
@@ -71,7 +71,7 @@ agents:
         SOUL.md: agents/tester/SOUL.md
         IDENTITY.md: agents/tester/IDENTITY.md
 
-  - id: litsearch_reviewer
+  - id: reviewer
     name: Reviewer
     role: analysis
     description: Reviews PRs, requests changes or approves.
@@ -86,7 +86,7 @@ agents:
 
 steps:
   - id: plan
-    agent: litsearch_planner
+    agent: planner
     input: |
       Decompose the following task into ordered user stories for autonomous execution.
 
@@ -113,8 +113,8 @@ steps:
     on_fail:
       escalate_to: human
 
-  - id: litsearch_setup
-    agent: litsearch_setup
+  - id: setup
+    agent: setup
     input: |
       Prepare the development environment for this feature.
 
@@ -145,7 +145,7 @@ steps:
       escalate_to: human
 
   - id: implement
-    agent: litsearch_runner
+    agent: runner
     type: loop
     loop:
       over: stories
@@ -199,7 +199,7 @@ steps:
       escalate_to: human
 
   - id: verify
-    agent: litsearch_validator
+    agent: validator
     input: |
       Verify the developer's work on this story.
 
@@ -260,7 +260,7 @@ steps:
         escalate_to: human
 
   - id: test
-    agent: litsearch_tester
+    agent: tester
     input: |
       Integration and E2E testing of the implementation.
 
@@ -299,7 +299,7 @@ steps:
         escalate_to: human
 
   - id: pr
-    agent: litsearch_runner
+    agent: runner
     input: |
       Create a pull request for your changes.
 
@@ -329,7 +329,7 @@ steps:
       escalate_to: human
 
   - id: review
-    agent: litsearch_reviewer
+    agent: reviewer
     input: |
       Review the pull request.
 
