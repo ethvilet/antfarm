@@ -4,3 +4,11 @@ dist/
 *.db
 *.sqlite
 *.sqlite3
+
+.env
+*.key
+*.pem
+.env.local
+.env.*.local
+coverage/
+.nyc_output/
