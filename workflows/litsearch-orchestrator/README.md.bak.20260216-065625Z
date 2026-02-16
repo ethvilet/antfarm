@@ -106,33 +106,19 @@ Return:
 
 Invariants after any Antfarm/OpenClaw update:
 - openclaw-gateway.service is active on loopback and gateway runtime env does NOT include OPENCLAW_GATEWAY_TOKEN.
-- /home/ubuntu/.config/openclaw/openclaw.env is systemd-safe (KEY=VALUE only; no export; no command substitution).
 - openclaw cron list --json --all returns 6 antfarm/litsearch/* jobs with payload fields kind,message,model,timeoutSeconds.
 - Litsearch cron payload model is default, and alias default -> openai/gpt-5-mini is present.
 - Antfarm prompt template file dist/installer/agent-cron.js contains FINAL_REPORT requirements and does not contain placeholder text (CHANGES: what you did) or heredoc markers (ANTFARM_EOF).
 
-Post-upgrade checklist:
-1. systemctl --user restart openclaw-gateway.service
-2. /home/ubuntu/.npm-global/bin/openclaw cron list --json --all
-3. /home/ubuntu/.npm-global/bin/antfarm workflow ensure-crons litsearch
-4. /home/ubuntu/.openclaw/workspace/antfarm/tools/litsearch_upgrade_guard.sh
-5. If guard reports contention skip for canary, rerun guard when no other litsearch runs are active.
+Run post-update guard:
+- /home/ubuntu/.openclaw/workspace/antfarm/tools/litsearch_upgrade_guard.sh
 
 If guard fails:
 1. Recreate litsearch crons: /home/ubuntu/.npm-global/bin/antfarm workflow ensure-crons litsearch
 2. Re-check alias: /home/ubuntu/.npm-global/bin/openclaw models aliases list --json (expect default -> openai/gpt-5-mini)
 3. Re-apply antfarm prompt patch in dist/installer/agent-cron.js if placeholder/heredoc drift is detected, then rerun ensure-crons.
-4. If auth errors appear (device_token_mismatch / ws 1008), verify gateway runtime env token vars and local identity token parity before further retries.
 
 Rollback paths:
 - Guard script backup: tools/litsearch_upgrade_guard.sh.bak.UTC
 - Prompt template backups: dist/installer/agent-cron.js.bak.UTC
 - This README backup: README.md.bak.UTC
-- openclaw.env backup: /home/ubuntu/.config/openclaw/openclaw.env.bak.UTC
-
-Rollback commands:
-1. cp -a /home/ubuntu/.config/openclaw/openclaw.env.bak.UTC /home/ubuntu/.config/openclaw/openclaw.env
-2. cp -a /home/ubuntu/.openclaw/workspace/antfarm/tools/litsearch_upgrade_guard.sh.bak.UTC /home/ubuntu/.openclaw/workspace/antfarm/tools/litsearch_upgrade_guard.sh
-3. cp -a /home/ubuntu/.openclaw/workspace/antfarm_wt_v051_clean_20260215-060827Z/dist/installer/agent-cron.js.bak.UTC /home/ubuntu/.openclaw/workspace/antfarm_wt_v051_clean_20260215-060827Z/dist/installer/agent-cron.js
-4. systemctl --user daemon-reload && systemctl --user restart openclaw-gateway.service
-5. /home/ubuntu/.npm-global/bin/antfarm workflow ensure-crons litsearch

@@ -67,6 +67,17 @@ function migrate(db: DatabaseSync): void {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS canary_runs (
+      id TEXT PRIMARY KEY,
+      canary_name TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      meta TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 
   // Add columns to steps table for backwards compat

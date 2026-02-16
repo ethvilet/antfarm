@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+AF="/home/ubuntu/.npm-global/bin/antfarm"
+OC="/home/ubuntu/.npm-global/bin/openclaw"
+DIST="/home/ubuntu/.openclaw/workspace/antfarm_wt_v051_clean_20260215-060827Z/dist/installer/agent-cron.js"
+STATUS=0
+
+log() { printf "%s\n" "$*"; }
+fail() { STATUS=1; printf "FAIL: %s\n" "$*"; }
+
+log "generated_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+log "host=$(hostname)"
+log "user=$(whoami)"
+log "cwd=$(pwd)"
+log ""
+
+log "== versions =="
+if [ -x "$OC" ]; then
+  "$OC" --version || true
+elif command -v openclaw >/dev/null 2>&1; then
+  openclaw --version || true
+else
+  fail "openclaw_cli_missing"
+fi
+if [ -x "$AF" ]; then
+  "$AF" version || true
+else
+  fail "antfarm_cli_missing"
+fi
+log ""
+
+log "== gateway process env presence =="
+PID="$(systemctl --user show -p MainPID --value openclaw-gateway.service 2>/dev/null || echo 0)"
+log "gateway_pid=$PID"
+if [ "$PID" != "0" ] && [ -r "/proc/$PID/environ" ]; then
+  ENV_ROWS="$(tr '\0' '\n' < "/proc/$PID/environ")"
+  for k in OPENAI_API_KEY OPENROUTER_API_KEY OPENCLAW_GATEWAY_TOKEN; do
+    if printf "%s\n" "$ENV_ROWS" | grep -q "^${k}="; then
+      V="$(printf "%s\n" "$ENV_ROWS" | grep "^${k}=" | head -n1 | cut -d= -f2-)"
+      L="${#V}"
+      log "${k}_present=1 len=${L}"
+      if [ "$k" = "OPENCLAW_GATEWAY_TOKEN" ]; then
+        fail "OPENCLAW_GATEWAY_TOKEN must be unset in gateway runtime env"
+      fi
+    else
+      log "${k}_present=0 len=0"
+    fi
+  done
+else
+  fail "cannot_read_gateway_environ"
+fi
+log ""
+
+log "== cron payload checks (litsearch) =="
+if [ -x "$AF" ]; then
+  "$AF" workflow ensure-crons litsearch >/dev/null 2>&1 || true
+fi
+TMPJ="$(mktemp)"
+if [ -x "$OC" ]; then
+  OC_CMD="$OC"
+else
+  OC_CMD="openclaw"
+fi
+if ! "$OC_CMD" cron list --json --all >"$TMPJ" 2>/dev/null; then
+  fail "openclaw_cron_list_failed"
+else
+  python3 -c "import json,sys
+s=open(sys.argv[1],'r',errors='replace').read()
+i=s.find('{')
+obj=json.loads(s[i:]) if i>=0 else {}
+jobs=obj.get('jobs',[]) if isinstance(obj,dict) else []
+lit=[j for j in jobs if str(j.get('name','')).startswith('antfarm/litsearch/')]
+print('litsearch_jobs_n='+str(len(lit)))
+need={'kind','message','model','timeoutSeconds'}
+missing=0
+bad_model=0
+for j in lit:
+    p=j.get('payload') or {}
+    miss=sorted(list(need-set(p.keys())))
+    m=str(p.get('model',''))
+    print('job='+str(j.get('name'))+' enabled='+str(j.get('enabled'))+' wakeMode='+str(j.get('wakeMode'))+' model='+m+' missing='+(','.join(miss) if miss else 'none'))
+    if miss:
+        missing+=1
+    if m.startswith('anthropic/') or m=='openai/default':
+        bad_model+=1
+print('payload_missing_n='+str(missing))
+print('bad_model_n='+str(bad_model))
+raise SystemExit(0 if len(lit)>=6 and missing==0 and bad_model==0 else 2)
+" "$TMPJ" || fail "cron_payload_schema_or_model_check_failed"
+fi
+rm -f "$TMPJ"
+log ""
+
+log "== model alias check =="
+TMPA="$(mktemp)"
+if "$OC_CMD" models aliases list --json >"$TMPA" 2>/dev/null; then
+  python3 -c "import json,sys
+s=open(sys.argv[1],'r',errors='replace').read()
+i=s.find('{')
+o=json.loads(s[i:]) if i>=0 else {}
+a=o.get('aliases') or {}
+d=a.get('default','')
+print('alias_default='+str(d))
+raise SystemExit(0 if d=='openai/gpt-5-mini' else 2)
+" "$TMPA" || fail "alias_default_not_openai_gpt-5-mini"
+else
+  fail "openclaw_models_aliases_list_failed"
+fi
+rm -f "$TMPA"
+log ""
+
+log "== antfarm prompt template drift check =="
+if [ ! -f "$DIST" ]; then
+  fail "agent_cron_dist_missing"
+else
+  grep -q "FINAL_REPORT requirements" "$DIST" || fail "missing_final_report_prompt_text"
+  grep -q "CHANGES: what you did" "$DIST" && fail "placeholder_changes_prompt_detected" || true
+  grep -q "ANTFARM_EOF" "$DIST" && fail "heredoc_prompt_detected" || true
+fi
+log ""
+
+if [ "$STATUS" -eq 0 ]; then
+  log "guard_status=PASS"
+else
+  log "guard_status=FAIL"
+  log "remediation=Run antfarm workflow ensure-crons litsearch, verify model aliases, and reapply prompt patch if placeholders/heredoc reappear."
+fi
+
+log ""
+log "== plan-only canary check =="
+if [ "$STATUS" -eq 0 ]; then
+  TS_CANARY="$(date -u +%Y%m%d-%H%M%SZ)"
+  RUN_OUT="$("$AF" workflow run litsearch "CANARY=guard-planonly TS_UTC=${TS_CANARY} PLAN_ONLY=1" 2>&1 || true)"
+  RUN_ID="$(printf "%s\n" "$RUN_OUT" | rg -o "[0-9a-f]{8}-[0-9a-f-]{27}" | head -n 1 || true)"
+  log "guard_run_id=${RUN_ID:-none}"
+  if [ -z "${RUN_ID:-}" ]; then
+    fail "guard_canary_run_start_failed"
+  else
+    TMPJ4="$(mktemp)"
+    if "$OC_CMD" cron list --json --all >"$TMPJ4" 2>/dev/null; then
+      PLANNER_ID="$(python3 -c "import json,sys
+s=open(sys.argv[1],'r',errors='replace').read()
+i=s.find('{')
+o=json.loads(s[i:]) if i>=0 else {}
+jobs=o.get('jobs',[]) if isinstance(o,dict) else []
+p=[j for j in jobs if j.get('name')=='antfarm/litsearch/planner']
+print(p[0].get('id','') if p else '')
+" "$TMPJ4")"
+      if [ -n "${PLANNER_ID:-}" ]; then
+        "$OC_CMD" cron run "$PLANNER_ID" --timeout 120000 >/dev/null 2>&1 || true
+      fi
+    fi
+    rm -f "$TMPJ4"
+    DB="$HOME/.openclaw/antfarm/antfarm.db"
+    PLAN_STATUS=""
+    STORIES_N=0
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+      PLAN_STATUS="$(sqlite3 "$DB" "select status from steps where run_id='${RUN_ID}' and step_id='plan' limit 1;" 2>/dev/null || true)"
+      STORIES_N="$(sqlite3 "$DB" "select count(*) from stories where run_id='${RUN_ID}';" 2>/dev/null || echo 0)"
+      log "guard_probe_${i}_plan_status=${PLAN_STATUS:-unknown}"
+      log "guard_probe_${i}_stories_n=${STORIES_N:-0}"
+      if [ "${PLAN_STATUS:-}" = "done" ] && [ "${STORIES_N:-0}" -gt 0 ]; then
+        break
+      fi
+      if [ -n "${PLANNER_ID:-}" ] && [ $((i % 2)) -eq 0 ]; then
+        "$OC_CMD" cron run "$PLANNER_ID" --timeout 60000 >/dev/null 2>&1 || true
+      fi
+      sleep 30
+    done
+    log "guard_plan_status=${PLAN_STATUS:-unknown}"
+    log "guard_stories_n=${STORIES_N:-0}"
+    if [ "${PLAN_STATUS:-}" != "done" ] || [ "${STORIES_N:-0}" -le 0 ]; then
+      fail "guard_canary_plan_or_stories_check_failed"
+    fi
+  fi
+else
+  log "guard_canary_skipped_due_to_previous_failures=1"
+fi
+
+if [ "$STATUS" -eq 0 ]; then
+  log "guard_status=PASS"
+else
+  log "guard_status=FAIL"
+  log "remediation=Run antfarm workflow ensure-crons litsearch, verify model aliases, reapply prompt patch, and rerun guard."
+fi
+
+exit "$STATUS"
