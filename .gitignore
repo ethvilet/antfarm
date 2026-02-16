@@ -6,6 +6,3 @@ dist/
 *.sqlite3
 progress.txt
 progress*.txt
-
-# Local OpenClaw state (never commit)
-.openclaw/
