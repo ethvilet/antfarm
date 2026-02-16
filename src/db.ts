@@ -100,6 +100,25 @@ function migrate(db: DatabaseSync): void {
   if (!runColNames.has("notify_url")) {
     db.exec("ALTER TABLE runs ADD COLUMN notify_url TEXT");
   }
+
+  // Apply SQL migration files from db/migrations (if any)
+  try {
+    const migrationsDir = path.join(process.cwd(), "db", "migrations");
+    if (fs.existsSync(migrationsDir)) {
+      db.exec(`CREATE TABLE IF NOT EXISTS migrations_applied (filename TEXT PRIMARY KEY, applied_at TEXT NOT NULL)`);
+      const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+      for (const file of files) {
+        const already = db.prepare('SELECT filename FROM migrations_applied WHERE filename = ?').get(file);
+        if (already) continue;
+        const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+        db.exec(sql);
+        db.prepare('INSERT INTO migrations_applied(filename, applied_at) VALUES(?, ?)').run(file, new Date().toISOString());
+      }
+    }
+  } catch (err) {
+    // swallow migration file errors to avoid breaking startup
+    console.error('Migration files apply error:', err);
+  }
 }
 
 export function getDbPath(): string {
